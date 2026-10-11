@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { HttpError, parseJson, route } from '@/lib/api'
-import { renderEmail, sendEmail } from '@/lib/email'
+import { appUrl, renderEmail, sendEmail } from '@/lib/email'
 import { exportFilename, incidentsCsv, incidentsPdf } from '@/lib/export'
 import { loadExport } from '@/lib/export-data'
 
@@ -47,7 +47,7 @@ export const POST = route('export.email', async req => {
         { label: 'Filters', value: meta.filters },
         { label: 'Generated', value: meta.generatedAt.toUTCString() }
       ],
-      cta: { label: 'Open incidents', url: `${process.env.APP_URL ?? 'http://localhost:3000'}/incidents${params ? `?${params}` : ''}` },
+      cta: { label: 'Open incidents', url: `${appUrl()}/incidents${params ? `?${params}` : ''}` },
       footer: 'You receive this because you asked for an export.'
     })
   })

@@ -12,7 +12,7 @@ import { POST as inviteMember } from '@/app/api/member-invites/route'
 import { DELETE as deleteMemberInvite } from '@/app/api/member-invites/[id]/route'
 import { POST as acceptMemberInvite } from '@/app/api/member-invites/[id]/accept/route'
 import { ACTIVE_ORG_COOKIE, loadSession } from '@/lib/session'
-import { addMembership, createOrg, createUser, ctx, json, noParams, req, resetDb, seedIncident } from '../setup/helpers'
+import { BASE, addMembership, createOrg, createUser, ctx, json, noParams, req, resetDb, seedIncident } from '../setup/helpers'
 
 /*
  * Organization lifecycle: invitations, join requests, approvals, roles, leaving, suspension and switching.
@@ -259,7 +259,7 @@ describe('organization settings and suspension', () => {
 
 describe('switching organizations', () => {
   const switchTo = (org: string, next: string): Promise<Response> =>
-    switchOrg(new Request(`http://localhost:3000/switch-org?org=${org}&next=${next}`))
+    switchOrg(new Request(`${BASE}/switch-org?org=${org}&next=${next}`))
 
   it('switches into active organizations only', async () => {
     const beta = await createOrg('Beta Health', { suspendedAt: new Date() })
@@ -268,7 +268,7 @@ describe('switching organizations', () => {
     signIn(carol)
 
     const ok = await switchTo(acme.id, '/incidents')
-    expect(ok.headers.get('location')).toBe('http://localhost:3000/incidents')
+    expect(ok.headers.get('location')).toBe(`${BASE}/incidents`)
     expect(ok.headers.get('set-cookie')).toContain(`${ACTIVE_ORG_COOKIE}=${acme.id}`)
 
     const suspended = await switchTo(beta.id, '/dashboard')
@@ -280,7 +280,7 @@ describe('switching organizations', () => {
     signIn(carol)
     for (const next of ['%2F%09%2Fevil.com', '%2F%2Fevil.com', 'https%3A%2F%2Fevil.com', '%2F%5Cevil.com']) {
       const res = await switchTo(acme.id, next)
-      expect(res.headers.get('location')).toBe('http://localhost:3000/dashboard')
+      expect(res.headers.get('location')).toBe(`${BASE}/dashboard`)
     }
   })
 })

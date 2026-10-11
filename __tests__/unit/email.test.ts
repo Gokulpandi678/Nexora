@@ -26,6 +26,6 @@ describe('renderEmail', () => {
   it('links to the incident', () => {
     const html = renderEmail({ heading: 'H', intro: 'I', cta: { label: 'Open', url: incidentUrl('abc') } })
     // Goes through /go/incident, which switches to the incident's organization first
-    expect(html).toContain('href="http://localhost:3000/go/incident/abc"')
+    expect(html).toContain(`href="${process.env.APP_URL}/go/incident/abc"`)
   })
 })

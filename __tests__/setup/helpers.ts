@@ -2,7 +2,7 @@ import type { Incident, Prisma } from '@prisma/client'
 import { prisma } from '@/lib/db'
 import type { CreateIncidentInput } from '@/lib/validators'
 
-export const BASE = 'http://localhost:3000'
+export const BASE = process.env.APP_URL!
 
 export interface TestUser {
   name: string

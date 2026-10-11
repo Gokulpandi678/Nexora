@@ -1,9 +1,19 @@
 import { defineConfig } from 'vitest/config'
+import fs from 'node:fs'
 import path from 'node:path'
 
+// Values come from the shell (CI) or .env (local); existing shell vars win
+if (fs.existsSync('.env')) process.loadEnvFile('.env')
+
+function requireEnv(name: string): string {
+  const value = process.env[name]
+  if (!value) throw new Error(`${name} must be set (see .env.example)`)
+  return value
+}
+
 // Integration tests run against a real Postgres. Locally: `npm run db:up` (docker compose) provides it.
-const TEST_DATABASE_URL =
-  process.env.TEST_DATABASE_URL ?? 'postgresql://postgres:postgres@localhost:5433/incident_tracker_test'
+const TEST_DATABASE_URL = requireEnv('TEST_DATABASE_URL')
+const APP_URL = requireEnv('APP_URL')
 
 export default defineConfig({
   esbuild: { jsx: 'automatic' },
@@ -29,7 +39,7 @@ export default defineConfig({
       NODE_ENV: 'test',
       RESEND_API_KEY: '',
       ONCALL_EMAIL: 'oncall@example.com',
-      APP_URL: 'http://localhost:3000'
+      APP_URL
     }
   }
 })

@@ -6,7 +6,7 @@ import { GET as searchIncidents } from '@/app/api/incidents/search/route'
 import { DELETE, GET as getIncident, PATCH } from '@/app/api/incidents/[id]/route'
 import type { IncidentDetailDTO, IncidentListItem, IncidentRef, Paginated, SimilarIncident } from '@/lib/types'
 import {
-  admin, ctx, headersFor, incidentInput, json, noParams, req, reporter, resetDb, seedIncident, verifier
+  BASE, admin, ctx, headersFor, incidentInput, json, noParams, req, reporter, resetDb, seedIncident, verifier
 } from '../setup/helpers'
 
 type ListBody = Paginated<IncidentListItem>
@@ -52,7 +52,7 @@ describe('POST /api/incidents/create', () => {
   })
 
   it('returns 400 for a body that is not JSON', async () => {
-    const bad = new Request('http://localhost:3000/api/incidents/create', { method: 'POST', body: '{nope', headers: headersFor(reporter) })
+    const bad = new Request(`${BASE}/api/incidents/create`, { method: 'POST', body: '{nope', headers: headersFor(reporter) })
     const res = await createIncident(bad, noParams)
     expect(res.status).toBe(400)
     expect((await json<ErrorBody>(res)).error).toBe('Request body must be valid JSON')

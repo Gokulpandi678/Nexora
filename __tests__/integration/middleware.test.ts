@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { NextRequest } from 'next/server'
 import { apiGuard as middleware } from '@/lib/api-guard'
+import { BASE } from '../setup/helpers'
 
 let ipCounter = 0
 /** Each test gets its own client IP so the shared in-memory rate limiter never interferes. */
@@ -10,9 +11,9 @@ function request(
   path: string,
   { method = 'GET', ip = uniqueIp(), headers = {} }: { method?: string; ip?: string; headers?: Record<string, string> } = {}
 ): NextRequest {
-  return new NextRequest(`http://localhost:3000${path}`, {
+  return new NextRequest(`${BASE}${path}`, {
     method,
-    headers: { host: 'localhost:3000', 'x-forwarded-for': ip, ...headers },
+    headers: { host: new URL(BASE).host, 'x-forwarded-for': ip, ...headers },
     body: method === 'GET' || method === 'DELETE' ? undefined : '{}'
   })
 }
@@ -32,20 +33,20 @@ describe('middleware', () => {
   it('rejects non-JSON mutating requests with 415', () => {
     const res = middleware(request('/api/incidents/create', {
       method: 'POST',
-      headers: { origin: 'http://localhost:3000', 'content-type': 'application/x-www-form-urlencoded' }
+      headers: { origin: BASE, 'content-type': 'application/x-www-form-urlencoded' }
     }))
     expect(res.status).toBe(415)
   })
 
   it('allows DELETE without a content type', () => {
-    const res = middleware(request('/api/incidents/abc', { method: 'DELETE', headers: { origin: 'http://localhost:3000' } }))
+    const res = middleware(request('/api/incidents/abc', { method: 'DELETE', headers: { origin: BASE } }))
     expect(passesThrough(res)).toBe(true)
   })
 
   it('lets same-origin JSON requests through with rate-limit headers', () => {
     const res = middleware(request('/api/incidents/create', {
       method: 'POST',
-      headers: { origin: 'http://localhost:3000', 'content-type': 'application/json; charset=utf-8' }
+      headers: { origin: BASE, 'content-type': 'application/json; charset=utf-8' }
     }))
     expect(passesThrough(res)).toBe(true)
     expect(res.headers.get('X-RateLimit-Limit')).toBe('100')
