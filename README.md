@@ -79,7 +79,7 @@ Flows:
 **WorkOS setup** (dashboard.workos.com, use the *Staging* environment locally):
 
 1. *API Keys* → copy `WORKOS_API_KEY` and `WORKOS_CLIENT_ID` into `.env`.
-2. *Redirects* → add `http://localhost:3000/auth/callback` as a Redirect URI (`NEXT_PUBLIC_WORKOS_REDIRECT_URI`), and `http://localhost:3000/login` as the Sign-out redirect.
+2. *Redirects* → add `http://localhost:3000/auth/callback` as a Redirect URI (`WORKOS_REDIRECT_URI`), and `http://localhost:3000/login` as the Sign-out redirect.
 3. Generate `WORKOS_COOKIE_PASSWORD` with `openssl rand -base64 32`.
 4. Keep *email verification* on (the default). Accepting an invitation requires a verified email that matches the invite.
 

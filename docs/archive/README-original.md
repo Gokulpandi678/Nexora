@@ -253,8 +253,8 @@ DATABASE_URL="postgresql://postgres:[PASSWORD]@[HOST]:6543/postgres?pgbouncer=tr
 DIRECT_URL="postgresql://postgres:[PASSWORD]@[HOST]:5432/postgres"
 
 # ============ SUPABASE (if using) ============
-NEXT_PUBLIC_SUPABASE_URL="https://[PROJECT-ID].supabase.co"
-NEXT_PUBLIC_SUPABASE_ANON_KEY="[YOUR-ANON-KEY]"
+SUPABASE_URL="https://[PROJECT-ID].supabase.co"
+SUPABASE_ANON_KEY="[YOUR-ANON-KEY]"
 
 # ============ EMAIL ============
 RESEND_API_KEY="re_[YOUR-KEY]"

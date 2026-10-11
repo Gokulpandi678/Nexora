@@ -33,8 +33,8 @@ touch .env.local
 ```
 # .env.local
 DATABASE_URL="postgresql://[user]:[password]@[host]:5432/[database]"
-NEXT_PUBLIC_SUPABASE_URL="https://[project-id].supabase.co"
-NEXT_PUBLIC_SUPABASE_ANON_KEY="[anon-key]"
+SUPABASE_URL="https://[project-id].supabase.co"
+SUPABASE_ANON_KEY="[anon-key]"
 RESEND_API_KEY="[your-resend-key]"
 APP_URL="http://localhost:3000"
 ```
