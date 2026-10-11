@@ -133,7 +133,7 @@ E2E: `npm run test:e2e` starts the dev server on port 3100 (or set `E2E_BASE_URL
 
 ## Configuration
 
-See [.env.example](.env.example). Required: `DATABASE_URL`, `DIRECT_URL`. Optional: `RESEND_API_KEY` + `EMAIL_FROM` (without them, notifications are in-app only), `ONCALL_EMAIL`, `NEXT_PUBLIC_APP_URL` (links in emails), `RATE_LIMIT_PER_MINUTE` (default 100), `LOG_LEVEL=debug`.
+See [.env.example](.env.example). Required: `DATABASE_URL`, `DIRECT_URL`. Optional: `RESEND_API_KEY` + `EMAIL_FROM` (without them, notifications are in-app only), `ONCALL_EMAIL`, `APP_URL` (links in emails), `RATE_LIMIT_PER_MINUTE` (default 100), `LOG_LEVEL=debug`.
 
 ## Project layout
 

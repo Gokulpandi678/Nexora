@@ -47,7 +47,7 @@ export const POST = route('export.email', async req => {
         { label: 'Filters', value: meta.filters },
         { label: 'Generated', value: meta.generatedAt.toUTCString() }
       ],
-      cta: { label: 'Open incidents', url: `${process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000'}/incidents${params ? `?${params}` : ''}` },
+      cta: { label: 'Open incidents', url: `${process.env.APP_URL ?? 'http://localhost:3000'}/incidents${params ? `?${params}` : ''}` },
       footer: 'You receive this because you asked for an export.'
     })
   })

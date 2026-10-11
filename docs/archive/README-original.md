@@ -261,7 +261,7 @@ RESEND_API_KEY="re_[YOUR-KEY]"
 EMAIL_FROM="Incident Tracker <alerts@yourcompany.com>"
 
 # ============ APPLICATION ============
-NEXT_PUBLIC_APP_URL="http://localhost:3000"  # or production domain
+APP_URL="http://localhost:3000"  # or production domain
 NODE_ENV="development"  # development | production
 
 # ============ AUTHENTICATION (v2.0+) ============

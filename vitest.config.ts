@@ -29,7 +29,7 @@ export default defineConfig({
       NODE_ENV: 'test',
       RESEND_API_KEY: '',
       ONCALL_EMAIL: 'oncall@example.com',
-      NEXT_PUBLIC_APP_URL: 'http://localhost:3000'
+      APP_URL: 'http://localhost:3000'
     }
   }
 })

@@ -20,7 +20,7 @@ export function escapeHtml(value: string): string {
     .replace(/'/g, '&#39;')
 }
 
-export const appUrl = (): string => process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000'
+export const appUrl = (): string => process.env.APP_URL ?? 'http://localhost:3000'
 /** Goes through /go/incident/:id, which switches to the incident's organization before opening it. */
 export const incidentUrl = (id: string): string => `${appUrl()}/go/incident/${id}`
 

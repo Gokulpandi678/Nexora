@@ -36,7 +36,7 @@ DATABASE_URL="postgresql://[user]:[password]@[host]:5432/[database]"
 NEXT_PUBLIC_SUPABASE_URL="https://[project-id].supabase.co"
 NEXT_PUBLIC_SUPABASE_ANON_KEY="[anon-key]"
 RESEND_API_KEY="[your-resend-key]"
-NEXT_PUBLIC_APP_URL="http://localhost:3000"
+APP_URL="http://localhost:3000"
 ```
 
 ### Step 3: Prisma Schema
@@ -558,7 +558,7 @@ export async function sendMatchNotification(
             Can you quickly review if it's the same issue and provide suggestions? Your experience could help resolve this faster.
           </p>
 
-          <a href="${process.env.NEXT_PUBLIC_APP_URL}/incidents/${newIncidentId}" style="display: inline-block; background: #0ea5e9; color: #0f172a; padding: 8px 16px; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 14px; margin-top: 12px;">
+          <a href="${process.env.APP_URL}/incidents/${newIncidentId}" style="display: inline-block; background: #0ea5e9; color: #0f172a; padding: 8px 16px; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 14px; margin-top: 12px;">
             View Incident →
           </a>
 
