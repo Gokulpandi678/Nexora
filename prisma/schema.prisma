@@ -1,0 +1,273 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// Enumerated values (severity, status, …) are stored as strings so existing rows keep working;
+// allowed values are enforced by the Zod schemas in lib/validators.ts.
+
+model Incident {
+  id              String   @id @default(cuid())
+  title           String   @db.VarChar(255)
+  description     String   @db.Text
+  symptoms        String   @db.Text
+  initialFixes    String?  @db.Text
+  affectedSystems String[]
+  tags            String[] @default([])
+  severity        String   @default("P2") // P1, P2, P3, P4
+  status          String   @default("OPEN") // OPEN, INVESTIGATING, RESOLVED, CLOSED
+
+  createdBy  String
+  email      String
+  department String @default("Unassigned")
+
+  // Every incident belongs to one organization; null only for rows created before org scoping
+  // Restrict: organizations are suspended, never deleted, so incident history can never be wiped
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  organizationId String?
+
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @default(now()) @updatedAt
+  resolvedAt DateTime?
+  closedAt   DateTime?
+  deletedAt  DateTime? // soft delete
+
+  estimatedMTTR  Int? // minutes, reporter's estimate of how long the issue persisted
+  actualMTTR     Int? // minutes, resolvedAt - createdAt
+  recurringCount Int  @default(1) // 1 + number of incidents linked to this one as the same issue
+
+  // Maintained by Postgres (GENERATED ALWAYS … STORED, see migrations); never written by the app
+  searchVector Unsupported("tsvector")? @default(dbgenerated("((setweight(to_tsvector('english'::regconfig, (COALESCE(title, ''::character varying))::text), 'A'::\"char\") || setweight(to_tsvector('english'::regconfig, COALESCE(symptoms, ''::text)), 'B'::\"char\")) || setweight(to_tsvector('english'::regconfig, COALESCE(description, ''::text)), 'C'::\"char\"))"))
+
+  // Semantic matching (pgvector). Written by lib/embeddings.ts; null until embedded.
+  embedding      Unsupported("vector(1024)")?
+  embeddingModel String?
+
+  linkedTo   Incident?  @relation("IncidentLink", fields: [linkedToId], references: [id], onDelete: SetNull)
+  linkedToId String?
+  linkedFrom Incident[] @relation("IncidentLink")
+
+  solutions   Solution[]
+  matchedAs   MatchLink[]   @relation("newIncident")
+  matchedFrom MatchLink[]   @relation("originalIncident")
+  comments    Comment[]
+  activityLog ActivityLog[]
+
+  @@index([organizationId, deletedAt, createdAt])
+  @@index([status, severity, createdAt])
+  @@index([linkedToId])
+  @@index([department])
+  @@index([createdAt])
+  @@index([deletedAt])
+  @@index([affectedSystems], type: Gin)
+  @@index([searchVector], type: Gin)
+}
+
+model Solution {
+  id         String   @id @default(cuid())
+  incident   Incident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  incidentId String
+
+  rootCause    String   @db.Text
+  approach     String   @db.Text
+  timeToFix    Int // minutes
+  efficiency   String   @default("MEDIUM") // HIGH, MEDIUM, LOW
+  useCaseNotes String   @db.Text
+  qaChecks     String[]
+
+  solvedBy   String
+  email      String    @default("")
+  solvedAt   DateTime  @default(now())
+  status     String    @default("UNVERIFIED") // UNVERIFIED, VERIFIED, DEPRECATED
+  verifiedBy String?
+  verifiedAt DateTime?
+
+  preventionRules String? @db.Text
+  monitoring      String? @db.Text
+
+  @@index([incidentId])
+  @@index([status])
+}
+
+model MatchLink {
+  id                 String   @id @default(cuid())
+  newIncident        Incident @relation("newIncident", fields: [newIncidentId], references: [id], onDelete: Cascade)
+  newIncidentId      String
+  originalIncident   Incident @relation("originalIncident", fields: [originalIncidentId], references: [id], onDelete: Cascade)
+  originalIncidentId String
+
+  matchType       String   @default("SIMILAR") // SAME, SIMILAR, DERIVED
+  solutionUsed    String? // Solution id tried first
+  notes           String?  @db.Text
+  didSolutionWork Boolean?
+  outcome         String? // RESOLVED, RETRY_NEEDED, DIFFERENT_APPROACH_NEEDED
+  createdBy       String?
+
+  createdAt  DateTime  @default(now())
+  resolvedAt DateTime?
+
+  @@unique([newIncidentId, originalIncidentId])
+  @@index([originalIncidentId])
+  @@index([solutionUsed])
+}
+
+model Comment {
+  id         String   @id @default(cuid())
+  incident   Incident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  incidentId String
+
+  parent   Comment?  @relation("CommentThread", fields: [parentId], references: [id], onDelete: Cascade)
+  parentId String?
+  replies  Comment[] @relation("CommentThread")
+
+  author    String
+  email     String
+  content   String   @db.Text
+  mentions  String[] @default([]) // emails of mentioned people
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([incidentId, createdAt])
+  @@index([parentId])
+}
+
+model ActivityLog {
+  id         String   @id @default(cuid())
+  incident   Incident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  incidentId String
+
+  action    String // CREATED, UPDATED, STATUS_CHANGED, LINKED, SOLUTION_ADDED, VERIFIED, COMMENTED, DELETED
+  actor     String
+  details   String   @db.Text
+  timestamp DateTime @default(now())
+
+  @@index([incidentId, timestamp])
+}
+
+model NotificationLog {
+  id               String    @id @default(cuid())
+  recipientEmail   String
+  incidentId       String
+  organizationId   String? // the incident's organization, so the inbox follows the selected organization
+  notificationType String // RECURRENCE, MENTION, SOLUTION_VERIFIED, STATUS_CHANGED, P1_ESCALATION
+  title            String    @default("")
+  delivered        Boolean   @default(true) // false when no email provider is configured or sending failed
+  readAt           DateTime?
+  sentAt           DateTime  @default(now())
+
+  @@index([recipientEmail, incidentId])
+  @@index([recipientEmail, readAt])
+  @@index([recipientEmail, organizationId])
+}
+
+/**
+ * ---------- Accounts & organizations ----------
+ */
+
+// Identity comes from WorkOS AuthKit; this table holds the app-side profile and platform role.
+model User {
+  id           String  @id @default(cuid())
+  workosId     String  @unique
+  email        String  @unique
+  name         String  @default("")
+  isSuperAdmin Boolean @default(false) // bootstrapped from SUPERADMIN_EMAILS
+
+  // Onboarding profile
+  jobTitle    String?   @db.VarChar(120)
+  department  String? // one of DEPARTMENTS
+  phone       String?   @db.VarChar(40)
+  bio         String?   @db.Text
+  onboardedAt DateTime?
+
+  // Theme, UI style, sidebar and list view, shared across browsers and devices (see lib/preferences.ts).
+  // null until the user first saves one; read through parsePreferences(), which falls back per field.
+  preferences Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  memberships     Membership[]
+  invitationsSent OrgInvitation[]
+}
+
+model Organization {
+  id          String   @id @default(cuid())
+  name        String   @db.VarChar(120)
+  slug        String   @unique
+  industry    String?  @db.VarChar(80)
+  size        String? // 1-10, 11-50, 51-200, 201-1000, 1000+
+  website     String?  @db.VarChar(255)
+  description String?  @db.Text
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Organizations are never deleted. A superadmin can suspend one: nobody can use it, data is kept.
+  suspendedAt     DateTime?
+  suspendedBy     String? // superadmin email
+  suspendedReason String?   @db.Text
+
+  memberships   Membership[]
+  invitation    OrgInvitation?
+  incidents     Incident[]
+  memberInvites MemberInvite[]
+}
+
+// A user's place in an organization. Join requests are PENDING memberships the org admin approves.
+model Membership {
+  id             String       @id @default(cuid())
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId         String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organizationId String
+
+  role      String    @default("REPORTER") // access: ADMIN, VERIFIER, REPORTER, VIEWER
+  position  String? // job level in this organization: CXO, DIRECTOR, MANAGER, PMO, TEAM_LEAD, TEAM_MEMBER, INTERN, CONTRACTOR
+  status    String    @default("PENDING") // PENDING, ACTIVE, REJECTED
+  message   String?   @db.Text // note from the requester
+  decidedBy String? // email of the admin who approved/rejected
+  decidedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@unique([userId, organizationId])
+  @@index([organizationId, status])
+}
+
+// Sent by a superadmin; accepting it creates the organization and makes the recipient its admin.
+model OrgInvitation {
+  id               String        @id @default(cuid())
+  email            String
+  organizationName String        @db.VarChar(120)
+  tokenHash        String        @unique // sha256 of the emailed token; the token itself is never stored
+  expiresAt        DateTime
+  acceptedAt       DateTime?
+  revokedAt        DateTime?
+  invitedBy        User          @relation(fields: [invitedById], references: [id])
+  invitedById      String
+  organization     Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  organizationId   String?       @unique
+  createdAt        DateTime      @default(now())
+
+  @@index([email])
+}
+
+// An organization admin invites someone by email to join an existing organization. The person accepts
+// it in Nexora (signed in with that email), which creates an ACTIVE membership with this role and position.
+model MemberInvite {
+  id             String       @id @default(cuid())
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organizationId String
+  email          String
+  role           String       @default("REPORTER")
+  position       String?
+  invitedBy      String // admin email
+  createdAt      DateTime     @default(now())
+
+  @@unique([organizationId, email])
+  @@index([email])
+}

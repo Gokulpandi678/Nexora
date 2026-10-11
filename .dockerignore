@@ -1,0 +1,16 @@
+node_modules
+.next
+.git
+.github
+.env
+.env.*
+!.env.example
+*.zip
+coverage
+playwright-report
+test-results
+__tests__
+e2e
+*.md
+!README.md
+tsconfig.tsbuildinfo
