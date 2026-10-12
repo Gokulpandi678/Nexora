@@ -50,6 +50,24 @@ model Incident {
   embedding      Unsupported("vector(1024)")?
   embeddingModel String?
 
+  // ---------- Business impact & SLA (lib/sla.ts) ----------
+  projects       Project[]
+  impact         String    @default("NONE") // NONE, DEGRADED, OUTAGE
+  startedAt      DateTime? // when customer impact began; null = at report time
+  acknowledgedAt DateTime? // first response; set when someone acknowledges or moves it past OPEN
+  mitigatedAt    DateTime? // service restored (impact over); the root cause may still be open
+
+  // Copied from the strictest SLA policy when reported, so later policy edits never rewrite history.
+  // Pausing (waiting on the customer) moves both due dates out by the paused time on resume.
+  slaResponseDueAt      DateTime?
+  slaResolveDueAt       DateTime?
+  slaPausedAt           DateTime?
+  slaPausedMinutes      Int       @default(0)
+  // Set by the SLA check (app/api/cron/sla) when it notifies; breach state itself is computed from the dates
+  slaWarnedAt           DateTime?
+  slaResponseBreachedAt DateTime?
+  slaResolveBreachedAt  DateTime?
+
   linkedTo   Incident?  @relation("IncidentLink", fields: [linkedToId], references: [id], onDelete: SetNull)
   linkedToId String?
   linkedFrom Incident[] @relation("IncidentLink")
@@ -61,6 +79,7 @@ model Incident {
   activityLog ActivityLog[]
 
   @@index([organizationId, deletedAt, createdAt])
+  @@index([status, slaResolveDueAt])
   @@index([status, severity, createdAt])
   @@index([linkedToId])
   @@index([department])
@@ -195,6 +214,7 @@ model User {
 
   memberships     Membership[]
   invitationsSent OrgInvitation[]
+  ownedProjects   Project[]
 }
 
 model Organization {
@@ -217,6 +237,7 @@ model Organization {
   invitation    OrgInvitation?
   incidents     Incident[]
   memberInvites MemberInvite[]
+  projects      Project[]
 }
 
 // A user's place in an organization. Join requests are PENDING memberships the org admin approves.
@@ -272,4 +293,46 @@ model MemberInvite {
 
   @@unique([organizationId, email])
   @@index([email])
+}
+
+/**
+ * ---------- Projects & SLAs ----------
+ */
+
+// A product or service incidents can affect (e.g. "Checkout API"). Archived, never deleted, so history stays.
+model Project {
+  id                    String       @id @default(cuid())
+  organization          Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organizationId        String
+  name                  String       @db.VarChar(120)
+  description           String?      @db.Text
+  // Project lead: an active member of the organization (checked by the API); gets SLA warnings and breaches
+  owner                 User?        @relation(fields: [ownerId], references: [id], onDelete: SetNull)
+  ownerId               String?
+  criticality           String       @default("MEDIUM") // CRITICAL, HIGH, MEDIUM, LOW
+  // Monthly availability target in percent (99.9 = about 43 minutes of outage a month)
+  availabilityTarget    Float        @default(99.9)
+  // Business cost of one minute of outage, in the organization's reporting currency; 0 = not tracked
+  downtimeCostPerMinute Int          @default(0)
+  archivedAt            DateTime?
+  createdAt             DateTime     @default(now())
+  updatedAt             DateTime     @updatedAt
+
+  incidents   Incident[]
+  slaPolicies SlaPolicy[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId, archivedAt])
+}
+
+// Response and resolution targets for one severity on one project
+model SlaPolicy {
+  id              String  @id @default(cuid())
+  project         Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId       String
+  severity        String // P1, P2, P3, P4
+  responseMinutes Int
+  resolveMinutes  Int
+
+  @@unique([projectId, severity])
 }

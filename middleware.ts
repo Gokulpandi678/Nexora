@@ -2,8 +2,8 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { authkit, handleAuthkitHeaders } from '@workos-inc/authkit-nextjs'
 import { apiGuard } from '@/lib/api-guard'
 
-/** Reachable without signing in. Everything else redirects to WorkOS (pages) or returns 401 (API). */
-const PUBLIC_PATHS = [/^\/$/, /^\/login$/, /^\/auth\/(callback|sign-in|sign-up)$/, /^\/invite\/[^/]+$/, /^\/api\/health$/]
+/** Reachable without signing in (the cron route checks its own secret). Everything else redirects to WorkOS (pages) or returns 401 (API). */
+const PUBLIC_PATHS = [/^\/$/, /^\/login$/, /^\/auth\/(callback|sign-in|sign-up)$/, /^\/invite\/[^/]+$/, /^\/api\/health$/, /^\/api\/cron\/sla$/]
 
 const passesThrough = (res: NextResponse): boolean => res.headers.get('x-middleware-next') === '1'
 

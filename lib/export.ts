@@ -53,7 +53,7 @@ export function incidentsCsv(items: IncidentListItem[]): string {
 
 /* ---------- PDF ---------- */
 
-const COLORS = { ink: '#111827', muted: '#6B7280', line: '#E5E7EB', band: '#F3F4F6', brand: '#0061FF', p1: '#B91C1C' }
+export const COLORS = { ink: '#111827', muted: '#6B7280', line: '#E5E7EB', band: '#F3F4F6', brand: '#0061FF', p1: '#B91C1C' }
 
 interface Column {
   label: string

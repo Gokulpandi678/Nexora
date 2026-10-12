@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import {
   DEPARTMENTS, EFFICIENCIES, LIMITS, LINK_OUTCOMES, MATCH_TYPES, MAX_PAGE_SIZE, PAGE_SIZE, QA_CHECK_IDS,
-  ORG_SIZES, POSITIONS, ROLES, SEVERITIES, SOLUTION_STATUSES, STATUSES, SYSTEM_OPTIONS
+  CRITICALITIES, IMPACTS, ORG_SIZES, POSITIONS, ROLES, SEVERITIES, SOLUTION_STATUSES, STATUSES, SYSTEM_OPTIONS
 } from '@/lib/constants'
 
 const text = (label: string, min: number, max: number) =>
@@ -18,6 +18,14 @@ const uniqueList = <T extends z.ZodTypeAny>(item: T) => z.array(item).transform(
 
 /* ---------- Incidents ---------- */
 
+/** A past or present moment as an ISO string; at most 5 minutes in the future to allow for clock drift. */
+const pastDate = z
+  .string()
+  .datetime({ offset: true, message: 'Enter a valid date and time' })
+  .transform(v => new Date(v))
+  .refine(d => d.getTime() <= Date.now() + 5 * 60_000, 'Cannot be in the future')
+const projectIds = uniqueList(id).pipe(z.array(z.string()).max(10, 'Pick at most 10 projects'))
+
 export const createIncidentSchema = z.object({
   title: text('Title', LIMITS.title.min, LIMITS.title.max),
   description: text('Description', LIMITS.description.min, LIMITS.description.max),
@@ -29,7 +37,11 @@ export const createIncidentSchema = z.object({
   estimatedMTTR: z.number().int().min(0).max(525_600).nullish().transform(v => v ?? undefined),
   tags: uniqueList(z.string().trim().toLowerCase().min(1).max(40)).pipe(z.array(z.string()).max(10)).optional(),
   createdBy: name('Reporter name'),
-  email
+  email,
+  projectIds: projectIds.optional(),
+  impact: z.enum(IMPACTS).default('NONE'),
+  /** When customer impact began, if earlier than the report */
+  startedAt: pastDate.nullish().transform(v => v ?? undefined)
 })
 export type CreateIncidentInput = z.infer<typeof createIncidentSchema>
 
@@ -38,7 +50,17 @@ export const updateIncidentSchema = z
     status: z.enum(STATUSES).optional(),
     severity: z.enum(SEVERITIES).optional(),
     department: z.enum(DEPARTMENTS).optional(),
-    tags: uniqueList(z.string().trim().toLowerCase().min(1).max(40)).pipe(z.array(z.string()).max(10)).optional()
+    tags: uniqueList(z.string().trim().toLowerCase().min(1).max(40)).pipe(z.array(z.string()).max(10)).optional(),
+    projectIds: projectIds.optional(),
+    impact: z.enum(IMPACTS).optional(),
+    /** null clears it (impact then counts from the report) */
+    startedAt: pastDate.nullable().optional(),
+    /** true stamps the first response now; acknowledging twice keeps the first time */
+    acknowledge: z.literal(true).optional(),
+    /** true = service restored now, false = clears it (impact is ongoing again) */
+    mitigated: z.boolean().optional(),
+    /** true = waiting on the customer (SLA clock stops), false = resume */
+    slaPaused: z.boolean().optional()
   })
   .refine(v => Object.values(v).some(x => x !== undefined), 'Nothing to update')
 export type UpdateIncidentInput = z.infer<typeof updateIncidentSchema>
@@ -214,3 +236,35 @@ export const memberInviteSchema = z.object({
   role: z.enum(ROLES).default('REPORTER'),
   position: z.enum(POSITIONS).nullish().transform(v => v ?? null)
 })
+
+/* ---------- Projects & SLAs ---------- */
+
+const minutes = (label: string) =>
+  z.number({ invalid_type_error: `${label} must be a number` }).int().min(1, `${label} must be at least 1 minute`).max(525_600, `${label} must be at most a year`)
+
+export const slaPolicySchema = z.object({
+  severity: z.enum(SEVERITIES),
+  responseMinutes: minutes('Response time'),
+  resolveMinutes: minutes('Resolve time')
+}).refine(p => p.resolveMinutes >= p.responseMinutes, { message: 'Resolve time cannot be shorter than response time', path: ['resolveMinutes'] })
+
+export const projectSchema = z.object({
+  name: name('Project name'),
+  description: z.string().trim().max(1000).nullish().transform(v => v || null),
+  /** User id of the project lead; must be an active member of the organization (checked by the API) */
+  ownerId: id.nullish().or(z.literal('')).transform(v => v || null),
+  criticality: z.enum(CRITICALITIES).default('MEDIUM'),
+  availabilityTarget: z.number().min(90, 'Target must be at least 90%').max(100, 'Target cannot exceed 100%').default(99.9),
+  downtimeCostPerMinute: z.number().int().min(0).max(100_000_000).default(0),
+  /** One per severity at most; a severity left out has no SLA */
+  slaPolicies: z.array(slaPolicySchema).max(SEVERITIES.length)
+    .refine(list => new Set(list.map(p => p.severity)).size === list.length, 'One policy per severity')
+    .default([])
+})
+export type ProjectInput = z.infer<typeof projectSchema>
+
+export const projectUpdateSchema = projectSchema.partial().extend({
+  /** true archives (hidden from pickers, history kept), false restores */
+  archived: z.boolean().optional()
+})
+export type ProjectUpdateInput = z.infer<typeof projectUpdateSchema>

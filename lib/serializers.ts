@@ -1,9 +1,10 @@
 import type { ActivityLog, Comment, Incident, MatchLink, Solution } from '@prisma/client'
+import { incidentSla } from '@/lib/sla'
 import type {
   ActivityDTO, CommentDTO, IncidentDetailDTO, IncidentRef, MatchLinkDTO, SolutionDTO
 } from '@/lib/types'
 import type {
-  Department, Efficiency, IncidentStatus, LinkOutcome, MatchType, Severity, SolutionStatus
+  Department, Efficiency, Impact, IncidentStatus, LinkOutcome, MatchType, Severity, SolutionStatus
 } from '@/lib/constants'
 
 const iso = (d: Date | null): string | null => d?.toISOString() ?? null
@@ -71,6 +72,7 @@ type DetailSource = Incident & {
   matchedFrom: (MatchLink & { newIncident: RefSource })[]
   activityLog: ActivityLog[]
   _count: { comments: number }
+  projects: { id: string; name: string }[]
 }
 
 export function toDetail(i: DetailSource): IncidentDetailDTO {
@@ -100,6 +102,12 @@ export function toDetail(i: DetailSource): IncidentDetailDTO {
     matchedAs: i.matchedAs.map(m => ({ ...toLink(m), originalIncident: toRef(m.originalIncident) })),
     matchedFrom: i.matchedFrom.map(m => ({ ...toLink(m), newIncident: toRef(m.newIncident) })),
     commentCount: i._count.comments,
-    activity: i.activityLog.map(toActivity)
+    activity: i.activityLog.map(toActivity),
+    projects: i.projects.map(p => ({ id: p.id, name: p.name })),
+    impact: i.impact as Impact,
+    startedAt: iso(i.startedAt),
+    acknowledgedAt: iso(i.acknowledgedAt),
+    mitigatedAt: iso(i.mitigatedAt),
+    sla: incidentSla(i, new Date())
   }
 }

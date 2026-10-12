@@ -16,8 +16,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { ErrorNotice, FieldError } from '@/components/states'
 import MatchResults, { type LinkOutcome } from '@/components/MatchResults'
 import {
-  DEPARTMENTS, LIMITS, SEVERITIES, SEVERITY_LABEL, SYSTEM_OPTIONS, type Department, type Severity
+  DEPARTMENTS, IMPACTS, IMPACT_LABEL, LIMITS, SEVERITIES, SEVERITY_LABEL, SYSTEM_OPTIONS, type Department, type Impact, type Severity
 } from '@/lib/constants'
+import { useProjects } from '@/hooks/useIncidents'
 import { createIncidentSchema } from '@/lib/validators'
 import { useIdentityStore } from '@/lib/store'
 import { ApiError, postJson } from '@/hooks/api'
@@ -35,6 +36,10 @@ interface FormState {
   estimatedMTTR: string
   createdBy: string
   email: string
+  projectIds: string[]
+  impact: Impact
+  /** datetime-local value (the reporter's local time) */
+  startedAt: string
 }
 
 const EMPTY: FormState = {
@@ -47,7 +52,10 @@ const EMPTY: FormState = {
   department: '',
   estimatedMTTR: '',
   createdBy: '',
-  email: ''
+  email: '',
+  projectIds: [],
+  impact: 'NONE',
+  startedAt: ''
 }
 
 const SEVERITY_HINT: Record<Severity, string> = {
@@ -71,12 +79,31 @@ const STEPS: { id: Step; label: string }[] = [
   { id: 'done', label: 'Done' }
 ]
 
+const toIso = (local: string): string | undefined => {
+  const d = new Date(local)
+  return Number.isNaN(d.getTime()) ? undefined : d.toISOString()
+}
+
+const IMPACT_HINT: Record<Impact, string> = {
+  NONE: 'Internal only, customers unaffected',
+  DEGRADED: 'Slow or partly failing for customers',
+  OUTAGE: 'Down for customers'
+}
+
+/** The latest moment a datetime-local input may pick: now, in local time. */
+const nowLocal = (): string => {
+  const d = new Date()
+  return new Date(d.getTime() - d.getTimezoneOffset() * 60_000).toISOString().slice(0, 16)
+}
+
 function toPayload(form: FormState): unknown {
   return {
     ...form,
     initialFixes: form.initialFixes || undefined,
     estimatedMTTR: form.estimatedMTTR === '' ? undefined : Number(form.estimatedMTTR),
-    department: form.department || undefined
+    department: form.department || undefined,
+    // A local date-time from the picker, sent as an absolute instant; no start time when there is no impact
+    startedAt: form.impact !== 'NONE' && form.startedAt ? toIso(form.startedAt) : undefined
   }
 }
 
@@ -92,6 +119,7 @@ export default function IncidentForm(): React.JSX.Element {
   const [created, setCreated] = useState<IncidentRef | null>(null)
   const [matches, setMatches] = useState<SimilarIncident[]>([])
   const [outcome, setOutcome] = useState<LinkOutcome | null>(null)
+  const { projects } = useProjects()
 
   // Reporter fields come from the signed-in account (the API enforces this too)
   useEffect(() => {
@@ -269,7 +297,62 @@ export default function IncidentForm(): React.JSX.Element {
                   </div>
                 </fieldset>
 
+                {projects.length > 0 && (
+                  <fieldset aria-describedby={errorFor('projectIds') ? 'projectIds-error' : undefined}>
+                    <legend className="mb-1 text-sm font-medium">Affected projects</legend>
+                    <p className="mb-2 text-xs text-muted-foreground">Their SLAs set this incident&apos;s response and resolve deadlines.</p>
+                    <div className="flex flex-wrap gap-2">
+                      {projects.map(project => {
+                        const selected = form.projectIds.includes(project.id)
+                        return (
+                          <button key={project.id} type="button" aria-pressed={selected}
+                            onClick={() => update('projectIds', selected ? form.projectIds.filter(id => id !== project.id) : [...form.projectIds, project.id])}
+                            className={cn(
+                              'ui-badge inline-flex items-center gap-2 rounded-full border px-3.5 py-2 text-sm font-medium transition-all',
+                              selected ? 'border-primary bg-primary text-primary-foreground shadow-md' : 'border-input bg-surface text-muted-foreground hover:border-primary/50 hover:text-foreground'
+                            )}>
+                            {project.name}
+                          </button>
+                        )
+                      })}
+                    </div>
+                    <FieldError id="projectIds-error" message={errorFor('projectIds')} />
+                  </fieldset>
+                )}
+
+                <fieldset>
+                  <legend className="mb-2 text-sm font-medium">Customer impact</legend>
+                  <div role="radiogroup" aria-label="Customer impact" className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                    {IMPACTS.map(impact => {
+                      const on = form.impact === impact
+                      return (
+                        <label key={impact} className={cn(
+                          'ui-card flex cursor-pointer flex-col gap-0.5 p-3 transition-all focus-within:ring-2 focus-within:ring-ring',
+                          on ? 'shadow-md ring-2 ring-primary' : 'opacity-80 hover:opacity-100'
+                        )}>
+                          <input type="radio" name="impact" value={impact} checked={on} onChange={() => update('impact', impact)} className="sr-only" />
+                          <span className="flex items-center gap-2 text-sm font-semibold">
+                            {IMPACT_LABEL[impact]}
+                            {on && <CheckCircle2 className="ml-auto size-4 text-primary" aria-hidden="true" />}
+                          </span>
+                          <span className="text-xs text-muted-foreground">{IMPACT_HINT[impact]}</span>
+                        </label>
+                      )
+                    })}
+                  </div>
+                </fieldset>
+
                 <div className="grid gap-5 sm:grid-cols-2">
+                  {form.impact !== 'NONE' && (
+                    <div className="flex flex-col gap-2">
+                      <Label htmlFor="startedAt">When did customers start being affected? (optional)</Label>
+                      <Input id="startedAt" type="datetime-local" max={nowLocal()} value={form.startedAt}
+                        onChange={e => update('startedAt', e.target.value)} onBlur={touch('startedAt')}
+                        aria-describedby={errorFor('startedAt') ? 'startedAt-error' : 'startedAt-hint'} />
+                      <p id="startedAt-hint" className="text-xs text-muted-foreground">Leave empty if it started when you report it. Downtime counts from here.</p>
+                      <FieldError id="startedAt-error" message={errorFor('startedAt')} />
+                    </div>
+                  )}
                   <div className="flex flex-col gap-2">
                     <Label htmlFor="estimatedMTTR">How long has it persisted? (minutes, optional)</Label>
                     <Input id="estimatedMTTR" type="number" inputMode="numeric" min={0} value={form.estimatedMTTR}

@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useEffect } from 'react'
 import {
-  BarChart3, Building2, ChevronsLeft, ChevronsRight, LayoutDashboard, ListTree, Plus, Settings, Settings2, Users, X
+  BarChart3, Building2, ChevronsLeft, ChevronsRight, FolderKanban, Gauge, LayoutDashboard, ListTree, Plus, Settings, Settings2, Users, X
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import Logo from '@/components/Logo'
@@ -20,7 +20,8 @@ const NAV_GROUPS = [
     items: [
       { href: '/dashboard', label: 'Dashboard', Icon: LayoutDashboard, exact: true, count: false },
       { href: '/incidents', label: 'Incidents', Icon: ListTree, exact: false, count: true },
-      { href: '/analytics', label: 'Analytics', Icon: BarChart3, exact: true, count: false }
+      { href: '/analytics', label: 'Analytics', Icon: BarChart3, exact: true, count: false },
+      { href: '/sla', label: 'SLA & uptime', Icon: Gauge, exact: true, count: false }
     ]
   },
   {
@@ -37,6 +38,7 @@ const ADMIN_GROUP = {
   label: 'Organization',
   items: [
     { href: '/admin/members', label: 'Members', Icon: Users, exact: false, count: false },
+    { href: '/admin/projects', label: 'Projects & SLAs', Icon: FolderKanban, exact: true, count: false },
     { href: '/admin/organization', label: 'Organization settings', Icon: Settings2, exact: true, count: false }
   ]
 } as const

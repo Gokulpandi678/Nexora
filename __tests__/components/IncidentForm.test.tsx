@@ -11,6 +11,14 @@ const SYMPTOMS = 'HTTP 504 from /api/checkout after 30s. Logs: TimeoutError conn
 
 const fetchMock = vi.fn<typeof fetch>()
 
+/** Answers the form's project list with none, and the report with `response` (a fresh Response per call). */
+function respondToCreate(response: () => Response): void {
+  fetchMock.mockImplementation(async input =>
+    String(input).startsWith('/api/projects') ? new Response('[]', { headers: { 'content-type': 'application/json' } }) : response()
+  )
+}
+const createCalls = () => fetchMock.mock.calls.filter(([url]) => url === '/api/incidents/create')
+
 beforeEach(() => {
   localStorage.clear()
   useIdentityStore.setState({
@@ -106,7 +114,7 @@ describe('IncidentForm', () => {
   })
 
   it('submits without identity headers (the session cookie carries identity) and shows the done step', async () => {
-    fetchMock.mockResolvedValue(new Response(JSON.stringify({
+    respondToCreate(() => new Response(JSON.stringify({
       incident: { id: 'inc1', title: TITLE, severity: 'P3', status: 'OPEN', createdBy: 'Rita Reporter', createdAt: new Date().toISOString() },
       similarIncidents: []
     }), { status: 201, headers: { 'content-type': 'application/json' } }))
@@ -118,17 +126,16 @@ describe('IncidentForm', () => {
     expect(await screen.findByText('Logged as a new incident')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Open incident' })).toHaveAttribute('href', '/incidents/inc1')
 
-    expect(fetchMock).toHaveBeenCalledTimes(1)
-    const [url, init] = fetchMock.mock.calls[0] ?? []
-    expect(url).toBe('/api/incidents/create')
+    expect(createCalls()).toHaveLength(1)
+    const [, init] = createCalls()[0] ?? []
     expect(init?.method).toBe('POST')
     expect(init?.headers).not.toHaveProperty('x-user-email')
     const body: unknown = JSON.parse(String(init?.body))
-    expect(body).toMatchObject({ title: TITLE, affectedSystems: ['Database'], department: 'SRE', severity: 'P3' })
+    expect(body).toMatchObject({ title: TITLE, affectedSystems: ['Database'], department: 'SRE', severity: 'P3', impact: 'NONE', projectIds: [] })
   })
 
   it('shows the server error and stays on the form when the API fails', async () => {
-    fetchMock.mockResolvedValue(new Response(JSON.stringify({ error: 'Database unavailable' }), { status: 500 }))
+    respondToCreate(() => new Response(JSON.stringify({ error: 'Database unavailable' }), { status: 500 }))
     render(<IncidentForm />)
     fillValidForm()
     fireEvent.click(submitButton())
