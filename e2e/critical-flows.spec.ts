@@ -60,7 +60,7 @@ test.describe('critical flows', () => {
     const approach = `Restarted the API pods and wrapped connection checkout in try/finally (${runId})`
     await page.getByRole('button', { name: 'Add solution' }).click()
     const dialog = page.getByRole('dialog', { name: 'Add a solution' })
-    await dialog.getByLabel('Root cause').fill('Retry path leaked connections on timeout so the pool never drained')
+    await dialog.getByLabel('Root cause', { exact: true }).fill('Retry path leaked connections on timeout so the pool never drained')
     await dialog.getByLabel('Approach — what fixed it').fill(approach)
     await dialog.getByLabel('Time to fix (minutes)').fill('45')
     await dialog.getByLabel('When to use this fix').fill('Use when the pool is pinned at max while queries stay fast')
