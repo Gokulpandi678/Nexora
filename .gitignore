@@ -5,10 +5,14 @@ coverage
 playwright-report
 test-results
 .env
+.env.prod
 .env.local
 .env.*.local
 *.tsbuildinfo
 next-env.d.ts
+
+catalyst-deployment
+catalyst-deployment.zip
 
 # Demo recordings and the saved login session (scripts/record-demo.ts)
 demo/

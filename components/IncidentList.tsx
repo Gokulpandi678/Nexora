@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import { useEffect, useState } from 'react'
+import { useSWRConfig } from 'swr'
 import {
   ChevronLeft, ChevronRight, Columns3, Eye, LayoutGrid, MessageSquare, RotateCw, Search, SlidersHorizontal, Table2,
   Wrench, X
@@ -19,12 +20,14 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { SeverityBadge, StatusBadge, SystemTag } from '@/components/incident-badges'
 import { EmptyState, ErrorNotice } from '@/components/states'
 import ExportMenu from '@/components/ExportMenu'
+import { useSession } from '@/components/SessionProvider'
 import {
-  DEPARTMENTS, SEVERITIES, SEVERITY_LABEL, STATUSES, STATUS_LABEL, SYSTEM_OPTIONS, isOneOf, type Department
+  DEPARTMENTS, SEVERITIES, SEVERITY_LABEL, STATUSES, STATUS_LABEL, SYSTEM_OPTIONS, isOneOf, type Department, type IncidentStatus
 } from '@/lib/constants'
 import { SORT_OPTIONS, type SortOption } from '@/lib/validators'
 import { filtersToParams, hasActiveFilters, useSearchStore, useUserStore, type IncidentFilters, type ViewMode } from '@/lib/store'
 import { useSearchIncidents } from '@/hooks/useIncidents'
+import { postJson } from '@/hooks/api'
 import type { IncidentListItem } from '@/lib/types'
 import { cn, formatMinutes, pluralize, timeAgo } from '@/lib/utils'
 
@@ -47,6 +50,30 @@ export default function IncidentList(): React.JSX.Element {
   const setViewMode = useUserStore(s => s.setIncidentView)
   const [query, setQuery] = useState(filters.q)
   const [filtersOpen, setFiltersOpen] = useState(false)
+  const [moveError, setMoveError] = useState<string | null>(null)
+  const { mutate: globalMutate } = useSWRConfig()
+  const { user, membership } = useSession()
+  // Same rule as PATCH /api/incidents/:id: reporters and up (superadmins act as admins)
+  const canMove = user.isSuperAdmin || (membership !== null && membership.role !== 'VIEWER')
+
+  /** Board drag-and-drop: moves the card at once, saves the status, and rolls back if the API refuses. */
+  const moveIncident = async (incident: IncidentListItem, status: IncidentStatus): Promise<void> => {
+    if (!data || incident.status === status) return
+    setMoveError(null)
+    const moved = { ...data, items: data.items.map(i => (i.id === incident.id ? { ...i, status } : i)) }
+    try {
+      await mutate(async () => {
+        await postJson(`/api/incidents/${incident.id}`, { status }, 'PATCH')
+        return moved
+      }, { optimisticData: moved, rollbackOnError: true, populateCache: true, revalidate: true })
+      // Stats, other list pages and the incident's own page show the new status too
+      void globalMutate(key => typeof key === 'string' && (
+        key.startsWith('/api/stats') || key.startsWith('/api/incidents?') || key.startsWith('/api/incidents/search') || key.startsWith(`/api/incidents/${incident.id}`)
+      ))
+    } catch (err) {
+      setMoveError(`Could not move “${incident.title}” to ${STATUS_LABEL[status]}: ${err instanceof Error ? err.message : 'update failed'}`)
+    }
+  }
 
   // The command palette navigates here with ?q=, dashboard pipeline tiles with ?status=
   const urlQ = searchParams.get('q')
@@ -130,7 +157,8 @@ export default function IncidentList(): React.JSX.Element {
         </EmptyState>
       ) : viewMode !== 'table' ? (
         <div className={cn('flex flex-col gap-4', isValidating && 'opacity-80 transition-opacity')}>
-          {viewMode === 'cards' ? <CardsView incidents={incidents} /> : <BoardView incidents={incidents} />}
+          {moveError && viewMode === 'board' && <ErrorNotice message={moveError} />}
+          {viewMode === 'cards' ? <CardsView incidents={incidents} /> : <BoardView incidents={incidents} canMove={canMove} onMove={moveIncident} />}
           {data && <Pager page={page} total={data.total} pageSize={data.pageSize} totalPages={data.totalPages} setPage={setPage} className="ui-card" />}
         </div>
       ) : (
@@ -272,10 +300,16 @@ function QuickFilters({ filters, setFilter }: {
   )
 }
 
-function IncidentCard({ incident: i, compact = false }: { incident: IncidentListItem; compact?: boolean }): React.JSX.Element {
+function IncidentCard({ incident: i, compact = false, dragProps, dragging = false }: {
+  incident: IncidentListItem
+  compact?: boolean
+  dragProps?: Pick<React.HTMLAttributes<HTMLAnchorElement>, 'draggable' | 'onDragStart' | 'onDragEnd'>
+  dragging?: boolean
+}): React.JSX.Element {
   return (
-    <Link href={`/incidents/${i.id}`}
-      className={cn('ui-card ui-card-interactive group relative flex w-full flex-col gap-2.5 overflow-hidden p-4 transition-all hover:-translate-y-0.5 hover:shadow-md', `sev-${i.severity}`)}>
+    <Link href={`/incidents/${i.id}`} {...dragProps}
+      className={cn('ui-card ui-card-interactive group relative flex w-full flex-col gap-2.5 overflow-hidden p-4 transition-all hover:-translate-y-0.5 hover:shadow-md', `sev-${i.severity}`,
+        dragProps?.draggable && 'cursor-grab active:cursor-grabbing', dragging && 'opacity-40')}>
       <span className="sev-dot absolute inset-x-0 top-0 h-1" aria-hidden="true" />
       <span className="flex items-center gap-1.5">
         <SeverityBadge severity={i.severity} />
@@ -308,23 +342,60 @@ function CardsView({ incidents }: { incidents: IncidentListItem[] }): React.JSX.
 
 const BOARD_ACCENT: Record<string, string> = { OPEN: 'bg-primary', INVESTIGATING: 'bg-warning', RESOLVED: 'bg-success', CLOSED: 'bg-subtle' }
 
-/** Kanban-style columns for the current page of results. */
-function BoardView({ incidents }: { incidents: IncidentListItem[] }): React.JSX.Element {
+/** Kanban-style columns for the current page of results. Dragging a card to another column changes its status. */
+function BoardView({ incidents, canMove, onMove }: {
+  incidents: IncidentListItem[]
+  canMove: boolean
+  onMove: (incident: IncidentListItem, status: IncidentStatus) => Promise<void>
+}): React.JSX.Element {
+  const [dragged, setDragged] = useState<IncidentListItem | null>(null)
+  const [over, setOver] = useState<IncidentStatus | null>(null)
+  const accepts = (s: IncidentStatus): boolean => dragged !== null && dragged.status !== s
+
   return (
     <div className="-mx-4 overflow-x-auto px-4 pb-2 sm:mx-0 sm:px-0">
       <div className="grid min-w-[880px] grid-cols-4 gap-4">
         {STATUSES.map(s => {
           const column = incidents.filter(i => i.status === s)
           return (
-            <section key={s} aria-label={`${STATUS_LABEL[s]} (${column.length})`} className="flex flex-col gap-3 rounded-lg border border-border/60 bg-muted/50 p-3">
+            <section key={s} aria-label={`${STATUS_LABEL[s]} (${column.length})`}
+              onDragOver={e => {
+                if (!accepts(s)) return
+                e.preventDefault() // allows the drop
+                e.dataTransfer.dropEffect = 'move'
+                if (over !== s) setOver(s)
+              }}
+              onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOver(o => (o === s ? null : o)) }}
+              onDrop={e => {
+                e.preventDefault()
+                const incident = dragged
+                setDragged(null)
+                setOver(null)
+                if (incident && incident.status !== s) void onMove(incident, s)
+              }}
+              className={cn('flex flex-col gap-3 rounded-lg border border-border/60 bg-muted/50 p-3 transition-colors',
+                over === s && 'border-primary bg-primary-soft/60 ring-2 ring-primary/30')}>
               <h3 className="ui-label-mono flex items-center gap-2 px-1 text-sm font-semibold">
                 <span className={cn('size-2 rounded-full', BOARD_ACCENT[s])} aria-hidden="true" />
                 {STATUS_LABEL[s]}
                 <span className="ml-auto rounded-full bg-surface px-2 text-xs tabular-nums text-muted-foreground">{column.length}</span>
               </h3>
               {column.length === 0
-                ? <p className="rounded-md border border-dashed border-border px-3 py-6 text-center text-xs text-muted-foreground">Nothing here on this page</p>
-                : column.map(i => <IncidentCard key={i.id} incident={i} compact />)}
+                ? <p className="rounded-md border border-dashed border-border px-3 py-6 text-center text-xs text-muted-foreground">
+                    {accepts(s) ? `Drop to move to ${STATUS_LABEL[s]}` : 'Nothing here on this page'}
+                  </p>
+                : column.map(i => (
+                    <IncidentCard key={i.id} incident={i} compact dragging={dragged?.id === i.id}
+                      dragProps={canMove ? {
+                        draggable: true,
+                        onDragStart: e => {
+                          e.dataTransfer.effectAllowed = 'move'
+                          e.dataTransfer.setData('text/plain', i.id)
+                          setDragged(i)
+                        },
+                        onDragEnd: () => { setDragged(null); setOver(null) }
+                      } : { draggable: false }} />
+                  ))}
             </section>
           )
         })}

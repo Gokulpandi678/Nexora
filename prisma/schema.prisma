@@ -1,5 +1,7 @@
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  // native for local builds; Linux engines so a build made on Windows also runs on Linux hosts (Catalyst AppSail)
+  binaryTargets = ["native", "debian-openssl-3.0.x", "rhel-openssl-3.0.x", "debian-openssl-1.1.x"]
 }
 
 datasource db {
