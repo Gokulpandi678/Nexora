@@ -64,6 +64,9 @@ jobs:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/incident_tracker
       DIRECT_URL: postgresql://postgres:postgres@localhost:5432/incident_tracker
       APP_URL: http://localhost:3100
+      # Test-only sign-in (lib/e2e-auth.ts): replaces WorkOS for this throwaway dev server and database.
+      # It is ignored by every production build, so this value unlocks nothing outside CI.
+      E2E_AUTH_SECRET: ci-e2e-only-secret-0123456789abcdef
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
