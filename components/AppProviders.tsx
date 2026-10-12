@@ -30,5 +30,5 @@ export default function AppProviders({ children }: { children: React.ReactNode }
     if (hydrated) document.documentElement.setAttribute('data-style', uiStyle)
   }, [uiStyle, hydrated])
 
-  return <SWRConfig value={{ fetcher, shouldRetryOnError: false }}>{children}</SWRConfig>
+  return <SWRConfig value={{ fetcher, shouldRetryOnError: false, keepPreviousData: true }}>{children}</SWRConfig>
 }

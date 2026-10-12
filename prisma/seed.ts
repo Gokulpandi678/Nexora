@@ -5,6 +5,15 @@
  *   npm run db:seed -- --reset       # wipes all tables first (local databases only)
  *   npm run db:seed -- --scale 50000 # adds N extra synthetic incidents for load testing
  *
+ * Demo data for a real organization (e.g. before recording the product video):
+ *
+ *   npm run demo:seed -- --org <slug> --team --notify you@company.com
+ *
+ *   --org <slug>       creates the incidents inside that organization instead of leaving them unassigned
+ *   --team             adds the demo people as members with varied roles, plus one pending join request
+ *   --notify <email>   adds unread notifications (recurrence, mention, verification, P1) for that person
+ *   --force            seeds an organization again even though it already has demo incidents
+ *
  * --reset refuses to run against a non-local database unless SEED_ALLOW_REMOTE=1.
  */
 import { PrismaClient, type Prisma } from '@prisma/client'
@@ -15,6 +24,16 @@ const args = process.argv.slice(2)
 const reset = args.includes('--reset')
 const scaleIndex = args.indexOf('--scale')
 const scale = scaleIndex >= 0 ? Number(args[scaleIndex + 1] ?? 0) : 0
+const option = (name: string): string | undefined => {
+  const i = args.indexOf(name)
+  return i >= 0 ? args[i + 1] : undefined
+}
+const orgSlug = option('--org')
+const notifyEmail = option('--notify')?.toLowerCase()
+const withTeam = args.includes('--team')
+const force = args.includes('--force')
+/** Set from --org before seeding; null leaves incidents unassigned (the original behaviour). */
+let organizationId: string | null = null
 
 const DAY = 86_400_000
 const now = Date.now()
@@ -37,6 +56,18 @@ const PEOPLE = [
   { name: 'Liam O’Connor', email: 'liam.oconnor@example.com', department: 'Support' },
   { name: 'Sofia Rossi', email: 'sofia.rossi@example.com', department: 'IT' },
   { name: 'Jonas Becker', email: 'jonas.becker@example.com', department: 'Engineering' }
+] as const
+
+/** Access role and job level for each demo person when --team is given (same order as PEOPLE). */
+const TEAM = [
+  { role: 'VERIFIER', position: 'TEAM_LEAD' },
+  { role: 'REPORTER', position: 'MANAGER' },
+  { role: 'REPORTER', position: 'TEAM_MEMBER' },
+  { role: 'VIEWER', position: 'TEAM_MEMBER' },
+  { role: 'VERIFIER', position: 'DIRECTOR' },
+  { role: 'REPORTER', position: 'TEAM_MEMBER' },
+  { role: 'REPORTER', position: 'CONTRACTOR' },
+  { role: 'ADMIN', position: 'CXO' }
 ] as const
 
 const COMMENTS = [
@@ -86,6 +117,7 @@ async function createIncident(scenario: Scenario, createdAt: Date, opts: { resol
       resolvedAt,
       closedAt: closed && resolvedAt ? new Date(resolvedAt.getTime() + DAY) : null,
       actualMTTR: mttr,
+      organizationId,
       activityLog: {
         create: [
           { action: 'CREATED', actor: reporter.name, details: `Incident reported (${scenario.severity}, ${reporter.department})`, timestamp: createdAt },
@@ -187,7 +219,8 @@ async function seedScale(n: number): Promise<void> {
         department: p.department,
         createdAt,
         resolvedAt: mttr === null ? null : new Date(createdAt.getTime() + mttr * 60_000),
-        actualMTTR: mttr
+        actualMTTR: mttr,
+        organizationId
       }
     })
     await prisma.incident.createMany({ data: rows })
@@ -196,12 +229,103 @@ async function seedScale(n: number): Promise<void> {
   process.stdout.write('\n')
 }
 
+/** Resolves --org and refuses to seed the same organization twice unless --force. */
+async function resolveOrganization(slug: string): Promise<string> {
+  const org = await prisma.organization.findUnique({ where: { slug }, select: { id: true, name: true } })
+  if (!org) {
+    const known = await prisma.organization.findMany({ select: { slug: true }, orderBy: { slug: 'asc' } })
+    throw new Error(`No organization with slug "${slug}". Known: ${known.map(o => o.slug).join(', ') || 'none yet'}`)
+  }
+  const seeded = await prisma.incident.count({ where: { organizationId: org.id, title: SCENARIOS[0]?.title } })
+  if (seeded > 0 && !force) throw new Error(`${org.name} already has demo incidents. Pass --force to add another set.`)
+  console.log(`Seeding into ${org.name}`)
+  return org.id
+}
+
+/** Demo people as members of the organization, so Members, roles and mentions look lived-in. */
+async function seedTeam(orgId: string): Promise<void> {
+  for (const [i, person] of PEOPLE.entries()) {
+    const team = TEAM[i] ?? TEAM[2]
+    // update: {} — never change a real account that happens to share the address
+    const user = await prisma.user.upsert({
+      where: { email: person.email },
+      update: {},
+      create: {
+        workosId: `demo_${person.email}`,
+        email: person.email,
+        name: person.name,
+        department: person.department,
+        onboardedAt: new Date(now - 90 * DAY)
+      }
+    })
+    await prisma.membership.upsert({
+      where: { userId_organizationId: { userId: user.id, organizationId: orgId } },
+      update: {},
+      create: { userId: user.id, organizationId: orgId, role: team.role, position: team.position, status: 'ACTIVE', decidedAt: new Date(now - 80 * DAY) }
+    })
+  }
+
+  // One join request waiting for the admin, to show the approval flow
+  const requester = await prisma.user.upsert({
+    where: { email: 'noah.kim@example.com' },
+    update: {},
+    create: { workosId: 'demo_noah.kim@example.com', email: 'noah.kim@example.com', name: 'Noah Kim', department: 'Support', onboardedAt: new Date(now - DAY) }
+  })
+  await prisma.membership.upsert({
+    where: { userId_organizationId: { userId: requester.id, organizationId: orgId } },
+    update: {},
+    create: {
+      userId: requester.id,
+      organizationId: orgId,
+      status: 'PENDING',
+      message: 'Joining the support on-call rotation next week and would like access to past incidents.'
+    }
+  })
+  console.log(`Added ${PEOPLE.length} members and 1 pending join request`)
+}
+
+/** Unread notifications for one person, pointing at the most recent seeded incidents. */
+async function seedNotifications(email: string, orgId: string | null): Promise<void> {
+  const recent = await prisma.incident.findMany({
+    where: { organizationId: orgId, deletedAt: null },
+    orderBy: { createdAt: 'desc' },
+    take: 4,
+    select: { id: true, title: true }
+  })
+  const kinds = [
+    { type: 'RECURRENCE', title: (t: string) => `Recurring issue: ${t}` },
+    { type: 'MENTION', title: (t: string) => `Priya Raman mentioned you on ${t}` },
+    { type: 'SOLUTION_VERIFIED', title: (t: string) => `Solution verified on ${t}` },
+    { type: 'P1_ESCALATION', title: (t: string) => `P1 escalation: ${t}` }
+  ] as const
+  await prisma.notificationLog.createMany({
+    data: recent.map((incident, i) => {
+      const kind = kinds[i % kinds.length] ?? kinds[0]
+      return {
+        recipientEmail: email,
+        incidentId: incident.id,
+        organizationId: orgId,
+        notificationType: kind.type,
+        title: kind.title(incident.title),
+        delivered: false,
+        sentAt: new Date(now - (i + 1) * 45 * 60_000)
+      }
+    })
+  })
+  console.log(`Added ${recent.length} unread notifications for ${email}`)
+}
+
 async function main(): Promise<void> {
   if (reset) await guardReset()
+  if (orgSlug) organizationId = await resolveOrganization(orgSlug)
   const count = await seedScenarios()
   console.log(`Seeded ${count} incidents across ${SCENARIOS.length} scenarios`)
   if (scale > 0) await seedScale(scale)
-  console.log('Seeded incidents belong to no organization yet. Make them visible with: npm run incidents:assign -- <organization-slug>')
+  if (organizationId && withTeam) await seedTeam(organizationId)
+  if (notifyEmail) await seedNotifications(notifyEmail, organizationId)
+  if (!organizationId) {
+    console.log('Seeded incidents belong to no organization yet. Make them visible with: npm run incidents:assign -- <organization-slug>')
+  }
 }
 
 main()

@@ -9,3 +9,6 @@ test-results
 .env.*.local
 *.tsbuildinfo
 next-env.d.ts
+
+# Demo recordings and the saved login session (scripts/record-demo.ts)
+demo/

@@ -98,8 +98,8 @@ async function selectedOrgId(): Promise<string | null> {
  * Loads the user with all their memberships. The working organization is `preferredOrgId` (default:
  * the cookie) if the user is an active member of it, else the most recently updated active membership.
  */
-export async function loadSession(userId: string, preferredOrgId?: string | null): Promise<AppSession> {
-  const user = await prisma.user.findUniqueOrThrow({
+export async function loadSession(userId: string, preferredOrgId?: string | null, knownEmail?: string): Promise<AppSession> {
+  const userQuery = prisma.user.findUniqueOrThrow({
     where: { id: userId },
     include: {
       memberships: {
@@ -108,6 +108,15 @@ export async function loadSession(userId: string, preferredOrgId?: string | null
       }
     }
   })
+  const findInvites = (email: string) => prisma.memberInvite.findMany({
+    where: { email, organization: { suspendedAt: null } },
+    orderBy: { createdAt: 'desc' },
+    include: { organization: { select: { id: true, name: true } } }
+  })
+  // With the email known up front, both lookups share one database round trip
+  const [user, inviteRows] = knownEmail
+    ? await Promise.all([userQuery, findInvites(knownEmail)])
+    : await userQuery.then(async u => [u, await findInvites(u.email)] as const)
   const memberships: SessionMembership[] = [...user.memberships]
     .sort((a, b) => (STATUS_RANK[a.status] ?? 9) - (STATUS_RANK[b.status] ?? 9))
     .map(m => ({
@@ -123,11 +132,6 @@ export async function loadSession(userId: string, preferredOrgId?: string | null
 
   // Invitations to organizations that are not suspended and the user is not already in
   const joined = new Set(memberships.filter(m => m.status === 'ACTIVE').map(m => m.organization.id))
-  const inviteRows = await prisma.memberInvite.findMany({
-    where: { email: user.email, organization: { suspendedAt: null } },
-    orderBy: { createdAt: 'desc' },
-    include: { organization: { select: { id: true, name: true } } }
-  })
   const invites: SessionInvite[] = inviteRows
     .filter(i => !joined.has(i.organizationId))
     .map(i => ({
@@ -161,7 +165,8 @@ export async function loadSession(userId: string, preferredOrgId?: string | null
 export const getSession = cache(async (): Promise<AppSession | null> => {
   const { user } = await withAuth()
   if (!user) return null
-  return loadSession(await syncUser(user))
+  // syncUser stores the email lowercased, so it can be passed on without another lookup
+  return loadSession(await syncUser(user), undefined, user.email.toLowerCase())
 })
 
 export const isActiveMember = (session: AppSession): boolean => session.membership !== null

@@ -16,6 +16,8 @@
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
     "db:seed": "tsx prisma/seed.ts",
+    "demo:seed": "tsx prisma/seed.ts",
+    "demo:record": "tsx scripts/record-demo.ts",
     "db:studio": "prisma studio",
     "incidents:assign": "tsx scripts/assign-incidents.ts",
     "embeddings:backfill": "tsx scripts/embed-incidents.ts",
