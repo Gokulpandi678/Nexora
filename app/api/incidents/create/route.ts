@@ -5,6 +5,7 @@ import { prisma } from '@/lib/db'
 import { escalateP1 } from '@/lib/email'
 import { embedIncident } from '@/lib/embeddings'
 import { logError } from '@/lib/logger'
+import { resolveProjects, slaDueFor } from '@/lib/projects'
 import { findSimilarIncidents, matchQueryFor } from '@/lib/search'
 import { toRef } from '@/lib/serializers'
 import { createIncidentSchema } from '@/lib/validators'
@@ -12,15 +13,28 @@ import { createIncidentSchema } from '@/lib/validators'
 /** POST /api/incidents/create — report an incident and get back the most similar past incidents. */
 export const POST = route('incidents.create', async req => {
   const { actor, scope } = await requireOrg(req, 'REPORTER')
-  const parsed = await parseJson(req, createIncidentSchema)
+  const { projectIds = [], ...parsed } = await parseJson(req, createIncidentSchema)
   // The signed-in user is always the reporter, whatever the body says
   const data = { ...parsed, createdBy: actor.name, email: actor.email }
 
   const incident = await prisma.$transaction(async tx => {
+    const projects = await resolveProjects(projectIds, scope, tx)
+    const reportedAt = new Date()
     const created = await tx.incident.create({
-      data: { ...data, tags: data.tags ?? [], status: 'OPEN', organizationId: scope.organizationId }
+      data: {
+        ...data,
+        tags: data.tags ?? [],
+        status: 'OPEN',
+        organizationId: scope.organizationId,
+        createdAt: reportedAt,
+        // Impact cannot start after the report
+        startedAt: data.startedAt && data.startedAt < reportedAt ? data.startedAt : null,
+        projects: { connect: projects.map(p => ({ id: p.id })) },
+        ...slaDueFor(projects, data.severity, reportedAt)
+      }
     })
-    await logActivity(tx, created.id, 'CREATED', data.createdBy, `Incident reported (${data.severity}, ${data.department})`)
+    const on = projects.length ? `, ${projects.map(p => p.name).join(', ')}` : ''
+    await logActivity(tx, created.id, 'CREATED', data.createdBy, `Incident reported (${data.severity}, ${data.department}${on})`)
     return created
   })
 

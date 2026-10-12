@@ -4,7 +4,8 @@ import useSWR, { type SWRConfiguration, type SWRResponse } from 'swr'
 import { fetcher } from '@/hooks/api'
 import { filtersToParams, useIdentityStore, useSearchStore, type IncidentFilters } from '@/lib/store'
 import type {
-  CommentDTO, DashboardStats, IncidentDetailDTO, IncidentListItem, NotificationDTO, Paginated, RecurringRow,
+  CommentDTO, DashboardStats, IncidentDetailDTO, IncidentListItem, NotificationDTO, Paginated, ProjectDTO, RecurringRow,
+  SlaReport,
   SimilarIncident, SolutionEffectiveness, SystemStat, TeamStats, TrendStats
 } from '@/lib/types'
 
@@ -86,4 +87,15 @@ export function useNotifications(): Query<{ items: NotificationDTO[]; unread: nu
     refreshInterval: 60_000,
     revalidateOnFocus: true
   })
+}
+
+/** The organization's projects (archived ones too when asked; admins only). */
+export function useProjects(includeArchived = false): Query<ProjectDTO[]> & { projects: ProjectDTO[] } {
+  const query = useApi<ProjectDTO[]>(`/api/projects${includeArchived ? '?archived=1' : ''}`, STATS_OPTIONS)
+  return { ...query, projects: query.data ?? [] }
+}
+
+/** SLA & availability for a month ('YYYY-MM'); refreshed every minute so countdowns stay current. */
+export function useSlaReport(month: string): Query<SlaReport> {
+  return useApi<SlaReport>(`/api/sla?month=${encodeURIComponent(month)}`, { ...STATS_OPTIONS, dedupingInterval: 30_000, refreshInterval: 60_000 })
 }

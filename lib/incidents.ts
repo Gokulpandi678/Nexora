@@ -20,6 +20,7 @@ export async function getIncidentWithDetails(id: string, scope: OrgScope): Promi
         orderBy: { createdAt: 'desc' }
       },
       activityLog: { orderBy: { timestamp: 'desc' }, take: 100 },
+      projects: { select: { id: true, name: true }, orderBy: { name: 'asc' } },
       _count: { select: { comments: true } }
     }
   })

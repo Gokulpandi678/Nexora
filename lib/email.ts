@@ -3,7 +3,9 @@ import { prisma } from '@/lib/db'
 import { logError, logger } from '@/lib/logger'
 import { activeMemberEmails } from '@/lib/members'
 
-export type NotificationType = 'RECURRENCE' | 'MENTION' | 'SOLUTION_VERIFIED' | 'STATUS_CHANGED' | 'P1_ESCALATION'
+export type NotificationType =
+  | 'RECURRENCE' | 'MENTION' | 'SOLUTION_VERIFIED' | 'STATUS_CHANGED' | 'P1_ESCALATION'
+  | 'SLA_WARNING' | 'SLA_RESPONSE_BREACH' | 'SLA_BREACH'
 
 let client: Resend | null | undefined
 function resend(): Resend | null {
@@ -255,6 +257,54 @@ export function sendStatusNotification(args: {
         { label: 'New status', value: args.status }
       ],
       cta: { label: 'View the incident', url: incidentUrl(args.incidentId) }
+    })
+  })
+}
+
+const SLA_COPY = {
+  SLA_WARNING: {
+    title: (t: string) => `SLA at risk: ${t}`,
+    heading: 'Resolution SLA at risk',
+    intro: 'Most of the time allowed to resolve this incident is used up.'
+  },
+  SLA_RESPONSE_BREACH: {
+    title: (t: string) => `Response SLA missed: ${t}`,
+    heading: 'Response SLA missed',
+    intro: 'Nobody acknowledged this incident within its response time.'
+  },
+  SLA_BREACH: {
+    title: (t: string) => `Resolution SLA breached: ${t}`,
+    heading: 'Resolution SLA breached',
+    intro: 'This incident is still open past its resolution deadline.'
+  }
+} as const
+
+/** SLA warnings and breaches, to project owners and (for breaches) the organization's admins. */
+export function sendSlaNotification(args: {
+  to: string
+  type: keyof typeof SLA_COPY
+  incidentId: string
+  incidentTitle: string
+  severity: string
+  projects: string[]
+  dueAt: Date
+}): Promise<boolean> {
+  const copy = SLA_COPY[args.type]
+  return notify({
+    to: args.to,
+    incidentId: args.incidentId,
+    type: args.type,
+    title: copy.title(args.incidentTitle),
+    subject: `[${args.severity}] ${copy.title(args.incidentTitle)}`,
+    html: renderEmail({
+      heading: copy.heading,
+      intro: copy.intro,
+      blocks: [
+        { label: 'Incident', value: args.incidentTitle },
+        { label: 'Projects', value: args.projects.join(', ') || '—' },
+        { label: 'Due', value: args.dueAt.toUTCString() }
+      ],
+      cta: { label: 'Open the incident', url: incidentUrl(args.incidentId) }
     })
   })
 }

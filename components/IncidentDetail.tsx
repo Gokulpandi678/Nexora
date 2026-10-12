@@ -16,6 +16,7 @@ import LinkIncidentDialog from '@/components/LinkIncidentDialog'
 import Markdown from '@/components/Markdown'
 import SolutionCard from '@/components/SolutionCard'
 import SolutionForm from '@/components/SolutionForm'
+import SlaPanel from '@/components/SlaPanel'
 import { MATCH_TYPE_LABEL, SEVERITIES, SEVERITY_LABEL, STATUSES, STATUS_LABEL, type IncidentStatus, type Severity } from '@/lib/constants'
 import { useIncident, useIncidentMatches } from '@/hooks/useIncidents'
 import { postJson } from '@/hooks/api'
@@ -148,7 +149,8 @@ export default function IncidentDetail({ id }: { id: string }): React.JSX.Elemen
         </div>
 
         {/* Right panel (40%) */}
-        <aside className="flex min-w-0 flex-col gap-6 lg:col-span-2" aria-label="Solutions and related incidents">
+        <aside className="flex min-w-0 flex-col gap-6 lg:col-span-2" aria-label="SLA, solutions and related incidents">
+          <SlaPanel incident={incident} onSaved={updated => { void mutate(updated, { revalidate: false }); refresh() }} />
           <Card>
             <CardHeader className="flex-row items-center justify-between">
               <CardTitle>Solutions <span className="font-normal text-muted-foreground">({incident.solutions.length})</span></CardTitle>

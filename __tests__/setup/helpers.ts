@@ -47,13 +47,13 @@ export async function json<T = unknown>(res: Response): Promise<T> {
 
 export async function resetDb(): Promise<void> {
   await prisma.$executeRawUnsafe(
-    'TRUNCATE "NotificationLog", "ActivityLog", "Comment", "MatchLink", "Solution", "Incident", "OrgInvitation", "MemberInvite", "Membership", "Organization", "User" RESTART IDENTITY CASCADE'
+    'TRUNCATE "NotificationLog", "ActivityLog", "SlaPolicy", "Project", "Comment", "MatchLink", "Solution", "Incident", "OrgInvitation", "MemberInvite", "Membership", "Organization", "User" RESTART IDENTITY CASCADE'
   )
 }
 
 /** Inserts an incident straight into the database (for controlled timestamps, statuses, MTTRs). */
 export async function seedIncident(overrides: Partial<Prisma.IncidentUncheckedCreateInput> = {}): Promise<Incident> {
-  const { tags: _tags, estimatedMTTR: _mttr, initialFixes: _fixes, ...input } = incidentInput()
+  const { tags: _tags, estimatedMTTR: _mttr, initialFixes: _fixes, projectIds: _projects, ...input } = incidentInput()
   return prisma.incident.create({ data: { ...input, status: 'OPEN', ...overrides } })
 }
 
@@ -71,6 +71,7 @@ export function incidentInput(overrides: Partial<CreateIncidentInput> = {}): Cre
     department: 'SRE',
     createdBy: reporter.name,
     email: reporter.email,
+    impact: 'NONE',
     ...overrides
   }
 }

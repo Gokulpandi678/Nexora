@@ -130,3 +130,35 @@ export const ROLE_HINT: Record<Role, string> = {
   VERIFIER: 'Reporter, plus QA-verifies fixes',
   ADMIN: 'Everything, plus manages members and settings'
 }
+
+/* ---------- Projects, impact & SLAs (lib/sla.ts) ---------- */
+
+export const IMPACTS = ['NONE', 'DEGRADED', 'OUTAGE'] as const
+export type Impact = (typeof IMPACTS)[number]
+
+export const IMPACT_LABEL: Record<Impact, string> = {
+  NONE: 'No customer impact',
+  DEGRADED: 'Degraded (partly working)',
+  OUTAGE: 'Outage (down)'
+}
+
+export const CRITICALITIES = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'] as const
+export type Criticality = (typeof CRITICALITIES)[number]
+
+export const CRITICALITY_LABEL: Record<Criticality, string> = {
+  CRITICAL: 'Critical',
+  HIGH: 'High',
+  MEDIUM: 'Medium',
+  LOW: 'Low'
+}
+
+/** Suggested targets for a new project, in minutes. Admins change them per project. */
+export const DEFAULT_SLA: Record<Severity, { responseMinutes: number; resolveMinutes: number }> = {
+  P1: { responseMinutes: 15, resolveMinutes: 4 * 60 },
+  P2: { responseMinutes: 30, resolveMinutes: 8 * 60 },
+  P3: { responseMinutes: 4 * 60, resolveMinutes: 3 * 24 * 60 },
+  P4: { responseMinutes: 24 * 60, resolveMinutes: 7 * 24 * 60 }
+}
+
+/** Share of the resolve time used at which the owner is warned. */
+export const SLA_WARN_RATIO = 0.75
