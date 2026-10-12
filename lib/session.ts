@@ -6,6 +6,7 @@ import { Prisma } from '@prisma/client'
 import { withAuth } from '@workos-inc/authkit-nextjs'
 import type { User as WorkosUser } from '@workos-inc/node'
 import { prisma } from '@/lib/db'
+import { E2E_COOKIE, e2eAuthEnabled, verifyE2eSession } from '@/lib/e2e-auth'
 import { DEPARTMENTS, isOneOf, POSITIONS, ROLES, type Department, type MembershipStatus } from '@/lib/constants'
 import { parsePreferences, type Preferences } from '@/lib/preferences'
 import { isUsable, type SessionInvite, type SessionMembership } from '@/lib/session-rules'
@@ -163,6 +164,11 @@ export async function loadSession(userId: string, preferredOrgId?: string | null
 
 /** The signed-in user, or null. Deduplicated per server render. */
 export const getSession = cache(async (): Promise<AppSession | null> => {
+  if (e2eAuthEnabled()) {
+    // Playwright runs only (lib/e2e-auth.ts): the signed test cookie names the user, WorkOS is not involved
+    const userId = await verifyE2eSession((await cookies()).get(E2E_COOKIE)?.value)
+    return userId ? loadSession(userId).catch(() => null) : null
+  }
   const { user } = await withAuth()
   if (!user) return null
   // syncUser stores the email lowercased, so it can be passed on without another lookup

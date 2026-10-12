@@ -16,3 +16,6 @@ catalyst-deployment.zip
 
 # Demo recordings and the saved login session (scripts/record-demo.ts)
 demo/
+
+# Playwright sign-in state (e2e/global-setup.ts)
+e2e/.auth/

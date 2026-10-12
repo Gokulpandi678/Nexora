@@ -1,7 +1,8 @@
 import { expect, test, type Page } from '@playwright/test'
+import { E2E_ADMIN } from './global-setup'
 
+// Every test runs signed in as E2E_ADMIN (see e2e/global-setup.ts and lib/e2e-auth.ts)
 const runId = Date.now().toString(36)
-const profile = { name: `E2E Verifier ${runId}`, email: `e2e-${runId}@example.com` }
 
 /** Opens a Radix Select by its trigger and picks an option. */
 async function choose(page: Page, triggerSelector: string, option: string): Promise<void> {
@@ -10,30 +11,20 @@ async function choose(page: Page, triggerSelector: string, option: string): Prom
   await expect(page.locator(triggerSelector)).toContainText(option)
 }
 
-async function setUpProfile(page: Page): Promise<void> {
-  await page.goto('/settings')
-  await page.getByLabel('Name').fill(profile.name)
-  await page.getByLabel('Email').fill(profile.email)
-  await choose(page, '#s-dept', 'SRE')
-  await choose(page, '#s-role', 'QA verifier')
-  await page.getByRole('button', { name: 'Save profile' }).click()
-  await expect(page.getByRole('status').filter({ hasText: 'Saved' })).toBeVisible()
-}
-
 test.describe('critical flows', () => {
   test('report → link → resolve with a solution → verify → discuss', async ({ page }) => {
     // Several pages may compile on first visit in dev mode
     test.setTimeout(240_000)
-    await setUpProfile(page)
+    await page.goto('/dashboard')
 
     // Report: worded like the seeded "connection pool exhausted" incident so matching has something to find
     const title = `Checkout API returning 504 timeouts, database connection pool exhausted (e2e ${runId})`
-    // Client-side navigation, as a user would: the profile store is already hydrated here
     await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('link', { name: 'Report incident' }).click()
     await expect(page).toHaveURL(/\/incidents\/new$/)
-    // Reporter fields come from the profile
-    await expect(page.getByLabel('Email', { exact: true })).toHaveValue(profile.email)
-    await expect(page.locator('#department')).toContainText('SRE')
+    // Reporter fields come from the signed-in account
+    await expect(page.getByLabel('Email', { exact: true })).toHaveValue(E2E_ADMIN.email)
+    await expect(page.getByLabel('Name', { exact: true })).toHaveValue(E2E_ADMIN.name)
+    await expect(page.locator('#department')).toContainText(E2E_ADMIN.department)
     await page.getByLabel('Title', { exact: true }).fill(title)
     await page.getByLabel('Description', { exact: true }).fill(
       'Since the lunchtime deploy most checkout requests time out. Postgres looks healthy and query latency is low, ' +
@@ -46,7 +37,6 @@ test.describe('critical flows', () => {
     await page.getByRole('button', { name: 'API', exact: true }).click()
     await page.getByText('P2 · High').click()
     await choose(page, '#department', 'Platform')
-    await expect(page.getByLabel('Name', { exact: true })).toHaveValue(profile.name)
 
     const submit = page.getByRole('button', { name: 'Report & check for matches' })
     await expect(submit).toBeEnabled()
@@ -81,10 +71,10 @@ test.describe('critical flows', () => {
     await expect(page.getByText(approach)).toBeVisible()
     await expect(page.getByText('Resolved').first()).toBeVisible()
 
-    // Verify it (profile role is QA verifier)
+    // Verify it (admins can QA-verify)
     await page.getByRole('button', { name: 'Show details' }).first().click()
     await page.getByRole('button', { name: 'Verify (QA approve)' }).click()
-    await expect(page.getByText(`Verified by ${profile.name}`)).toBeVisible()
+    await expect(page.getByText(`Verified by ${E2E_ADMIN.name}`)).toBeVisible()
 
     // Comment
     const commentText = `Monitoring for pool saturation added (${runId})`
@@ -117,5 +107,26 @@ test.describe('critical flows', () => {
       await expect(page.getByText(label, { exact: true }).first()).toBeVisible()
     }
     await expect(page.getByText(/^\d+(\.\d+)?%$/).first()).toBeVisible()
+  })
+
+  test('admin sets up a project with a lead and SLA targets, and it shows on SLA & uptime', async ({ page }) => {
+    const name = `Checkout ${runId}`
+    await page.goto('/admin/projects')
+    await page.getByRole('button', { name: 'New project' }).click()
+    const dialog = page.getByRole('dialog', { name: 'New project' })
+    await dialog.getByLabel('Name', { exact: true }).fill(name)
+    // The lead is picked from the organization's active members, not typed
+    await choose(page, '#p-owner', `${E2E_ADMIN.name} · Admin`)
+    await dialog.getByRole('button', { name: 'Create project' }).click()
+    await expect(dialog).toBeHidden()
+
+    const card = page.getByRole('listitem').filter({ hasText: name })
+    await expect(card).toContainText(E2E_ADMIN.name)
+    // A new project starts with the suggested targets: P1 resolves within 4 hours
+    await expect(card.getByRole('row', { name: /P1/ })).toContainText('4h')
+
+    await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('link', { name: 'SLA & uptime' }).click()
+    await expect(page.getByRole('heading', { level: 1, name: 'SLA & uptime' })).toBeVisible()
+    await expect(page.getByRole('row').filter({ hasText: name })).toContainText(`lead: ${E2E_ADMIN.name}`)
   })
 })
